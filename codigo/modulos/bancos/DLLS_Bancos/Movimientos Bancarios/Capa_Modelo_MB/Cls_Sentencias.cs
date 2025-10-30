@@ -23,6 +23,22 @@ namespace Capa_Modelo_MB
         public string sCmp_estado { get; set; }
         public string sCmp_usuario_registro { get; set; }
 
+
+        public class Cls_CuadreCaja
+        {
+            public decimal deSaldoInicial { get; set; }
+            public decimal deTotalIngresos { get; set; }
+            public decimal deTotalEgresos { get; set; }
+            public decimal deSaldoFinal { get; set; }
+            public decimal deSaldoReal { get; set; }
+            public decimal deDiferencia { get; set; }
+            public bool bCuadra { get; set; }
+            public DataTable dts_Movimientos { get; set; }
+        }
+
+
+
+
         // Clase para el detalle del movimiento (detalle contable)
         public class Cls_MovimientoDetalle
         {

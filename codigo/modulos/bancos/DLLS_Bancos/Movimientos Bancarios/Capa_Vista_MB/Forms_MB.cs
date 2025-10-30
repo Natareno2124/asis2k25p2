@@ -64,6 +64,7 @@ namespace Capa_Vista_MB
             pro_CargarEstadosMovimiento();
             pro_CargarDatosEnEstructuraCaptura();
 
+
             Cbo_NoCuenta_Recibe.Enabled = false;
             Txt_NombreCuenta_Recibe.Enabled = false;
         }
@@ -363,10 +364,8 @@ namespace Capa_Vista_MB
 
             DataRowView drv_Row = Cbo_Operacion.SelectedItem as DataRowView;
             string sNombreOperacion = drv_Row?["Cmp_nombre"]?.ToString().Trim() ?? string.Empty;
-
             bool bHabilitarRecibe = sNombreOperacion.Equals("TRANSFERENCIA_ENVIADA", StringComparison.OrdinalIgnoreCase) ||
                                     sNombreOperacion.Equals("TRANSFERENCIA_RECIBIDA", StringComparison.OrdinalIgnoreCase);
-
             Cbo_NoCuenta_Recibe.Enabled = bHabilitarRecibe;
             Txt_NombreCuenta_Recibe.Enabled = bHabilitarRecibe;
 
@@ -411,8 +410,22 @@ namespace Capa_Vista_MB
         {
             try
             {
-                int iConciliado = Cbo_Conciliado.SelectedIndex == 1 ? 1 : 0;
-                string sEstado = Cbo_Estado.SelectedItem?.ToString() ?? "Activo";
+                if (bGuardando) return;
+                bGuardando = true;
+                Btn_Guardar.Enabled = false;
+
+                // Validaciones iniciales
+                if (Cbo_NoCuenta_Envia.SelectedValue == null)
+                {
+                    MessageBox.Show("Seleccione una cuenta origen.");
+                    return;
+                }
+
+                if (Cbo_Operacion.SelectedValue == null)
+                {
+                    MessageBox.Show("Seleccione una operación.");
+                    return;
+                }
 
                 if (!decimal.TryParse(Txt_Monto.Text, out decimal deMontoPrincipal) || deMontoPrincipal <= 0)
                 {
@@ -421,6 +434,7 @@ namespace Capa_Vista_MB
                     return;
                 }
 
+                // Crear objeto movimiento
                 var mov = new Cls_Sentencias
                 {
                     iFk_Id_cuenta_origen = Convert.ToInt32(Cbo_NoCuenta_Envia.SelectedValue),
@@ -428,16 +442,19 @@ namespace Capa_Vista_MB
                                           Convert.ToInt32(Cbo_NoCuenta_Recibe.SelectedValue) : (int?)null,
                     iFk_Id_operacion = Convert.ToInt32(Cbo_Operacion.SelectedValue),
                     dCmp_fecha_movimiento = DateTime.Now,
-                    sCmp_numero_documento = Txt_NumeroDocumento.Text,
+                    sCmp_numero_documento = Txt_NumeroDocumento.Text.Trim(),
                     deCmp_valor_total = deMontoPrincipal,
-                    sCmp_observaciones = Txt_Concepto.Text,
-                    iCmp_conciliado = iConciliado,
-                    sCmp_estado = sEstado
+                    sCmp_concepto = Txt_Concepto.Text.Trim(),
+                    iCmp_conciliado = Cbo_Conciliado.SelectedIndex == 1 ? 1 : 0,
+                    sCmp_estado = Cbo_Estado.SelectedItem?.ToString() ?? "ACTIVO",
+                    sCmp_usuario_registro = "USUARIO_ACTUAL" // Cambiar por el usuario real
                 };
 
+                // Crear lista de detalles
                 var lst_Detalles = new List<Cls_Sentencias.Cls_MovimientoDetalle>();
                 var ctrl_Controlador = new Cls_Controlador();
 
+                // Procesar detalles del grid
                 foreach (DataGridViewRow dgv_Row in Dgv_Detalle_Movimiento.Rows)
                 {
                     if (dgv_Row.IsNewRow) continue;
@@ -446,7 +463,7 @@ namespace Capa_Vista_MB
                     decimal deHaber = 0;
                     string sTipoLinea = "";
                     decimal deMonto = 0;
-
+                    // Determinar tipo de línea y monto
                     if (decimal.TryParse(dgv_Row.Cells["Debe"].Value?.ToString(), out deDebe) && deDebe > 0)
                     {
                         deMonto = deDebe;
@@ -455,48 +472,47 @@ namespace Capa_Vista_MB
                     else if (decimal.TryParse(dgv_Row.Cells["Haber"].Value?.ToString(), out deHaber) && deHaber > 0)
                     {
                         deMonto = deHaber;
-                        sTipoLinea = "H";
+                        sTipoLinea = "C";
                     }
                     else
                     {
-                        continue;
+                        continue; // Saltar filas sin monto válido
                     }
 
-                    int? iTipoPago = null;
-                    if (int.TryParse(dgv_Row.Cells["Fk_Id_tipo_pago"].Value?.ToString(), out int iTp))
-                        iTipoPago = iTp;
-
-                    string sDocumento = dgv_Row.Cells["Cmp_Num_Documento"].Value?.ToString();
-                    string sDescripcion = dgv_Row.Cells["Cmp_Concepto"].Value?.ToString();
-
-                    lst_Detalles.Add(new Cls_Sentencias.Cls_MovimientoDetalle
+                    // Crear detalle
+                    var detalle = new Cls_Sentencias.Cls_MovimientoDetalle
                     {
-                        iFk_Id_tipo_pago = iTipoPago,
-                        sCmp_Num_Documento = sDocumento?.Trim(),
-                        deCmp_Monto = deMonto,
-                        sCmp_Descripcion = sDescripcion?.Trim(),
-                        iCmp_Conciliado = 0,
-                    });
+                        sFk_Id_cuenta_contable = "1110", // Cuenta contable por defecto
+                        sCmp_tipo_operacion = sTipoLinea,
+                        deCmp_valor = deMonto,
+                        sCmp_Descripcion = dgv_Row.Cells["Cmp_Concepto"].Value?.ToString()?.Trim() ?? "Movimiento contable",
+                        iCmp_Conciliado = 0
+                    };
+                    lst_Detalles.Add(detalle);
                 }
 
-                var lst_Errores = ctrl_Controlador.fun_ValidarMovimiento(mov, lst_Detalles);
-                if (lst_Errores.Any())
+                // Validar movimiento completo
+                var validacion = ctrl_Controlador.fun_ValidarMovimientoCompleto(mov, lst_Detalles);
+                if (!validacion.bOk)
                 {
-                    MessageBox.Show("Errores de validación:\n\n• " + string.Join("\n• ", lst_Errores));
+                    MessageBox.Show(validacion.sMensaje, "Error de validación");
                     return;
                 }
 
+                // Guardar en base de datos
                 var crud = new Cls_CRUD();
                 int iIdNuevo = crud.fun_CrearMovimientoConDetalles(mov, lst_Detalles);
 
-                MessageBox.Show($"Movimiento guardado correctamente. ID: {iIdNuevo}");
+                MessageBox.Show($"Movimiento guardado correctamente. ID: {iIdNuevo}", "Éxito",
+                               MessageBoxButtons.OK, MessageBoxIcon.Information);
 
                 pro_LimpiarFormulario();
                 pro_CargarDatosEnEstructuraCaptura();
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Error al guardar: {ex.Message}");
+                MessageBox.Show($"Error al guardar: {ex.Message}", "Error",
+                               MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             finally
             {
@@ -504,6 +520,9 @@ namespace Capa_Vista_MB
                 Btn_Guardar.Enabled = true;
             }
         }
+
+
+  
 
         private void pro_LimpiarFormulario()
         {
@@ -549,5 +568,9 @@ namespace Capa_Vista_MB
         {
 
         }
+
+        // CUADRE
+ 
+
     }
-}
+    }

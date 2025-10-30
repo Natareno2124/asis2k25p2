@@ -11,6 +11,18 @@ namespace Capa_Controldor_MB
         private readonly Cls_Sentencias cn = new Cls_Sentencias();
         private readonly Cls_CRUD crud = new Cls_CRUD();
 
+        public class Cls_CuadreCaja
+        {
+            public decimal deSaldoInicial { get; set; }
+            public decimal deTotalIngresos { get; set; }
+            public decimal deTotalEgresos { get; set; }
+            public decimal deSaldoFinal { get; set; }
+            public decimal deSaldoReal { get; set; }
+            public decimal deDiferencia { get; set; }
+            public bool bCuadra { get; set; }
+            public DataTable dts_Movimientos { get; set; }
+        }
+
         public DataTable fun_CargarCuentas()
         {
             return crud.fun_ObtenerCuentas();
@@ -40,34 +52,48 @@ namespace Capa_Controldor_MB
                    sNombreOperacion.Equals("TRANSFERENCIA_RECIBIDA", StringComparison.OrdinalIgnoreCase);
         }
 
-        public (bool bOk, string sMensaje) fun_ValidarMovimiento(
+        public (bool bOk, string sMensaje) fun_ValidarMovimientoCompleto(
             Cls_Sentencias mov,
-            List<Cls_Sentencias.Cls_MovimientoDetalle> lst_Detalles,
-            string sNombreOperacion)
+            List<Cls_Sentencias.Cls_MovimientoDetalle> lst_Detalles)
         {
-            if (mov.iFk_Id_cuenta_origen <= 0)
-                return (false, "Seleccione cuenta ORIGEN.");
-            if (mov.iFk_Id_operacion <= 0)
-                return (false, "Seleccione la OPERACIÓN.");
+            try
+            {
+                // Validaciones básicas
+                if (mov.iFk_Id_cuenta_origen <= 0)
+                    return (false, "Seleccione cuenta ORIGEN.");
 
-            bool bEsTransferencia = !string.IsNullOrWhiteSpace(sNombreOperacion) &&
-                                   sNombreOperacion.Equals("Transferencia", StringComparison.OrdinalIgnoreCase);
-            if (bEsTransferencia && (mov.iFk_Id_cuenta_destino == null || mov.iFk_Id_cuenta_destino <= 0))
-                return (false, "Para Transferencia seleccione cuenta DESTINO.");
-            if (lst_Detalles == null || lst_Detalles.Count == 0)
-                return (false, "Debe agregar al menos UNA línea de detalle.");
-            if (lst_Detalles.Any(d => d.deCmp_Monto <= 0))
-                return (false, "Todos los montos de detalle deben ser > 0.");
+                if (mov.iFk_Id_operacion <= 0)
+                    return (false, "Seleccione la OPERACIÓN.");
 
-            decimal deSuma = lst_Detalles.Sum(d => d.deCmp_Monto);
-            if (deSuma <= 0)
-                return (false, "El total del movimiento debe ser > 0.");
+                if (mov.deCmp_valor_total <= 0)
+                    return (false, "El monto total debe ser mayor a cero.");
 
-            mov.deCmp_valor_total = deSuma;
-            if (string.IsNullOrWhiteSpace(mov.sCmp_estado))
-                return (false, "Seleccione el ESTADO del movimiento.");
+                // Validar detalles
+                if (lst_Detalles == null || lst_Detalles.Count == 0)
+                    return (false, "Debe agregar al menos UN detalle.");
 
-            return (true, "OK");
+                decimal deSumaDetalles = 0;
+                foreach (var detalle in lst_Detalles)
+                {
+                    if (detalle.deCmp_valor <= 0)
+                        return (false, "Todos los montos de detalle deben ser > 0.");
+
+                    if (string.IsNullOrWhiteSpace(detalle.sFk_Id_cuenta_contable))
+                        return (false, "Todos los detalles deben tener cuenta contable.");
+
+                    deSumaDetalles += detalle.deCmp_valor;
+                }
+
+                // Validar que la suma de detalles coincida con el monto total
+                if (Math.Abs(deSumaDetalles - mov.deCmp_valor_total) > 0.01m)
+                    return (false, $"La suma de detalles ({deSumaDetalles:C2}) no coincide con el monto total ({mov.deCmp_valor_total:C2}).");
+
+                return (true, "OK");
+            }
+            catch (Exception ex)
+            {
+                return (false, $"Error en validación: {ex.Message}");
+            }
         }
 
         public int fun_GuardarMovimiento(Cls_Sentencias mov, List<Cls_Sentencias.Cls_MovimientoDetalle> lst_Detalles)
@@ -138,4 +164,8 @@ namespace Capa_Controldor_MB
             return null;
         }
     }
-}
+
+        // balance 
+        
+        
+    }

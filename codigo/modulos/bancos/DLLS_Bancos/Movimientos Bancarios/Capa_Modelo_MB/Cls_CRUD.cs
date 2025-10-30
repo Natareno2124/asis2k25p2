@@ -142,36 +142,12 @@ namespace Capa_Modelo_MB
             if (mov == null) throw new ArgumentNullException(nameof(mov));
             if (lst_Detalles == null) lst_Detalles = new List<Cls_Sentencias.Cls_MovimientoDetalle>();
 
-            using (OdbcConnection odcn_Conn = cn.fun_ConexionBD())
-            {
-                // Validar cuenta origen
-                string sValidarCuentaOrigen = "SELECT COUNT(*) FROM Tbl_CuentasBancarias WHERE Pk_Id_CuentaBancaria = ?";
-                using (OdbcCommand odc_CmdVal = new OdbcCommand(sValidarCuentaOrigen, odcn_Conn))
-                {
-                    odc_CmdVal.Parameters.AddWithValue("", mov.iFk_Id_cuenta_origen);
-                    int iCuentaOrigenExiste = Convert.ToInt32(odc_CmdVal.ExecuteScalar());
-                    if (iCuentaOrigenExiste == 0)
-                    {
-                        throw new Exception($"La cuenta origen (ID: {mov.iFk_Id_cuenta_origen}) no existe en la base de datos");
-                    }
-                }
+            // Validaciones antes de la transacción
+            if (mov.iFk_Id_cuenta_origen <= 0)
+                throw new Exception("La cuenta origen es requerida");
 
-                // Validar cuenta destino si se proporciona
-                if (mov.iFk_Id_cuenta_destino.HasValue && mov.iFk_Id_cuenta_destino.Value > 0)
-                {
-                    string sValidarCuentaDestino = "SELECT COUNT(*) FROM Tbl_CuentasBancarias WHERE Pk_Id_CuentaBancaria = ?";
-                    using (OdbcCommand odc_CmdVal = new OdbcCommand(sValidarCuentaDestino, odcn_Conn))
-                    {
-                        odc_CmdVal.Parameters.AddWithValue("", mov.iFk_Id_cuenta_destino.Value);
-                        int iCuentaDestinoExiste = Convert.ToInt32(odc_CmdVal.ExecuteScalar());
-
-                        if (iCuentaDestinoExiste == 0)
-                        {
-                            throw new Exception($"La cuenta destino (ID: {mov.iFk_Id_cuenta_destino.Value}) no existe en la base de datos");
-                        }
-                    }
-                }
-            }
+            if (mov.iFk_Id_operacion <= 0)
+                throw new Exception("La operación es requerida");
 
             // Truncar campos para cumplir con longitudes máximas
             mov.sCmp_numero_documento = fun_Trunc(mov.sCmp_numero_documento, 50);
@@ -184,51 +160,56 @@ namespace Capa_Modelo_MB
             {
                 try
                 {
-                    // Obtener el próximo ID de movimiento
+                    // Obtener el próximo ID de movimiento de forma más segura
                     int iProximoIdMovimiento = 1;
                     string sSqlMaxId = @"
-                        SELECT COALESCE(MAX(Pk_Id_Movimiento), 0) + 1 
-                        FROM Tbl_MovimientoBancarioEncabezado 
-                        WHERE Fk_Id_CuentaOrigen = ? AND Fk_Id_Operacion = ?";
-                    
+                SELECT COALESCE(MAX(Pk_Id_Movimiento), 0) + 1 
+                FROM Tbl_MovimientoBancarioEncabezado 
+                WHERE Fk_Id_CuentaOrigen = ? AND Fk_Id_Operacion = ?";
+
                     using (OdbcCommand odc_CmdMax = new OdbcCommand(sSqlMaxId, odcn_Conn, odc_Transaccion))
                     {
-                        odc_CmdMax.Parameters.AddWithValue("", mov.iFk_Id_cuenta_origen);
-                        odc_CmdMax.Parameters.AddWithValue("", mov.iFk_Id_operacion);
-                        iProximoIdMovimiento = Convert.ToInt32(odc_CmdMax.ExecuteScalar());
+                        odc_CmdMax.Parameters.Add(new OdbcParameter("@CuentaOrigen", OdbcType.Int) { Value = mov.iFk_Id_cuenta_origen });
+                        odc_CmdMax.Parameters.Add(new OdbcParameter("@Operacion", OdbcType.Int) { Value = mov.iFk_Id_operacion });
+
+                        object oResultado = odc_CmdMax.ExecuteScalar();
+                        if (oResultado != null && oResultado != DBNull.Value)
+                            iProximoIdMovimiento = Convert.ToInt32(oResultado);
                     }
 
-                    // Insertar en encabezado de movimiento
+                    // Insertar en encabezado de movimiento con parámetros explícitos
                     string sSqlMov = @"
-                        INSERT INTO Tbl_MovimientoBancarioEncabezado
-                        (Pk_Id_Movimiento, Fk_Id_CuentaOrigen, Fk_Id_Operacion, 
-                         Cmp_NumeroDocumento, Cmp_Fecha, Cmp_Concepto, Cmp_MontoTotal,
-                         Fk_Id_TipoPago, Fk_Id_CuentaDestino, Cmp_Beneficiario, Cmp_Estado, 
-                         Cmp_Conciliado, Cmp_UsuarioRegistro)
-                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)";
+                INSERT INTO Tbl_MovimientoBancarioEncabezado
+                (Pk_Id_Movimiento, Fk_Id_CuentaOrigen, Fk_Id_Operacion, 
+                 Cmp_NumeroDocumento, Cmp_Fecha, Cmp_Concepto, Cmp_MontoTotal,
+                 Fk_Id_TipoPago, Fk_Id_CuentaDestino, Cmp_Beneficiario, Cmp_Estado, 
+                 Cmp_Conciliado, Cmp_UsuarioRegistro)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
                     using (OdbcCommand odc_Cmd = new OdbcCommand(sSqlMov, odcn_Conn, odc_Transaccion))
                     {
-                        odc_Cmd.Parameters.AddWithValue("", iProximoIdMovimiento);
-                        odc_Cmd.Parameters.AddWithValue("", mov.iFk_Id_cuenta_origen);
-                        odc_Cmd.Parameters.AddWithValue("", mov.iFk_Id_operacion);
-                        odc_Cmd.Parameters.AddWithValue("", (object)mov.sCmp_numero_documento ?? DBNull.Value);
-                        odc_Cmd.Parameters.AddWithValue("", mov.dCmp_fecha_movimiento);
-                        odc_Cmd.Parameters.AddWithValue("", (object)mov.sCmp_concepto ?? DBNull.Value);
-                        odc_Cmd.Parameters.AddWithValue("", Convert.ToDecimal(mov.deCmp_valor_total));
-                        odc_Cmd.Parameters.AddWithValue("", (object)mov.iFk_Id_tipo_pago ?? DBNull.Value);
-                        odc_Cmd.Parameters.AddWithValue("", (object)mov.iFk_Id_cuenta_destino ?? DBNull.Value);
-                        odc_Cmd.Parameters.AddWithValue("", (object)mov.sCmp_beneficiario ?? DBNull.Value);
-                        odc_Cmd.Parameters.AddWithValue("", mov.sCmp_estado);
-                        odc_Cmd.Parameters.AddWithValue("", mov.iCmp_conciliado);
-                        odc_Cmd.Parameters.AddWithValue("", mov.sCmp_usuario_registro ?? "SISTEMA");
+                        // Agregar parámetros de forma explícita
+                        odc_Cmd.Parameters.Add(new OdbcParameter("@Pk_Id_Movimiento", OdbcType.Int) { Value = iProximoIdMovimiento });
+                        odc_Cmd.Parameters.Add(new OdbcParameter("@Fk_Id_CuentaOrigen", OdbcType.Int) { Value = mov.iFk_Id_cuenta_origen });
+                        odc_Cmd.Parameters.Add(new OdbcParameter("@Fk_Id_Operacion", OdbcType.Int) { Value = mov.iFk_Id_operacion });
+                        odc_Cmd.Parameters.Add(new OdbcParameter("@Cmp_NumeroDocumento", OdbcType.VarChar, 50) { Value = (object)mov.sCmp_numero_documento ?? DBNull.Value });
+                        odc_Cmd.Parameters.Add(new OdbcParameter("@Cmp_Fecha", OdbcType.Date) { Value = mov.dCmp_fecha_movimiento });
+                        odc_Cmd.Parameters.Add(new OdbcParameter("@Cmp_Concepto", OdbcType.VarChar, 255) { Value = (object)mov.sCmp_concepto ?? DBNull.Value });
+                        odc_Cmd.Parameters.Add(new OdbcParameter("@Cmp_MontoTotal", OdbcType.Decimal) { Value = mov.deCmp_valor_total });
+                        odc_Cmd.Parameters.Add(new OdbcParameter("@Fk_Id_TipoPago", OdbcType.Int) { Value = (object)mov.iFk_Id_tipo_pago ?? DBNull.Value });
+                        odc_Cmd.Parameters.Add(new OdbcParameter("@Fk_Id_CuentaDestino", OdbcType.Int) { Value = (object)mov.iFk_Id_cuenta_destino ?? DBNull.Value });
+                        odc_Cmd.Parameters.Add(new OdbcParameter("@Cmp_Beneficiario", OdbcType.VarChar, 255) { Value = (object)mov.sCmp_beneficiario ?? DBNull.Value });
+                        odc_Cmd.Parameters.Add(new OdbcParameter("@Cmp_Estado", OdbcType.VarChar, 20) { Value = mov.sCmp_estado });
+                        odc_Cmd.Parameters.Add(new OdbcParameter("@Cmp_Conciliado", OdbcType.Int) { Value = mov.iCmp_conciliado });
+                        odc_Cmd.Parameters.Add(new OdbcParameter("@Cmp_UsuarioRegistro", OdbcType.VarChar, 50) { Value = mov.sCmp_usuario_registro ?? "SISTEMA" });
 
-                        odc_Cmd.ExecuteNonQuery();
+                        int iFilasAfectadas = odc_Cmd.ExecuteNonQuery();
+
+                        if (iFilasAfectadas == 0)
+                            throw new Exception("No se pudo insertar el movimiento encabezado");
 
                         // Asignar los IDs generados al objeto movimiento
                         mov.iPk_Id_movimiento = iProximoIdMovimiento;
-                        mov.iFk_Id_cuenta_origen = mov.iFk_Id_cuenta_origen;
-                        mov.iFk_Id_operacion = mov.iFk_Id_operacion;
                     }
 
                     // Insertar detalles contables
@@ -237,24 +218,27 @@ namespace Capa_Modelo_MB
                         // Obtener el próximo ID de detalle
                         int iProximoIdDetalle = 1;
                         string sSqlMaxDetalle = @"
-                            SELECT COALESCE(MAX(Pk_Id_Detalle), 0) + 1 
-                            FROM Tbl_MovimientoBancarioDetalle 
-                            WHERE Fk_Id_Movimiento = ? AND Fk_Id_CuentaOrigen = ? AND Fk_Id_Operacion = ?";
-                        
+                    SELECT COALESCE(MAX(Pk_Id_Detalle), 0) + 1 
+                    FROM Tbl_MovimientoBancarioDetalle 
+                    WHERE Fk_Id_Movimiento = ? AND Fk_Id_CuentaOrigen = ? AND Fk_Id_Operacion = ?";
+
                         using (OdbcCommand odc_CmdMaxDet = new OdbcCommand(sSqlMaxDetalle, odcn_Conn, odc_Transaccion))
                         {
-                            odc_CmdMaxDet.Parameters.AddWithValue("", mov.iPk_Id_movimiento);
-                            odc_CmdMaxDet.Parameters.AddWithValue("", mov.iFk_Id_cuenta_origen);
-                            odc_CmdMaxDet.Parameters.AddWithValue("", mov.iFk_Id_operacion);
-                            iProximoIdDetalle = Convert.ToInt32(odc_CmdMaxDet.ExecuteScalar());
+                            odc_CmdMaxDet.Parameters.Add(new OdbcParameter("@Movimiento", OdbcType.Int) { Value = mov.iPk_Id_movimiento });
+                            odc_CmdMaxDet.Parameters.Add(new OdbcParameter("@CuentaOrigen", OdbcType.Int) { Value = mov.iFk_Id_cuenta_origen });
+                            odc_CmdMaxDet.Parameters.Add(new OdbcParameter("@Operacion", OdbcType.Int) { Value = mov.iFk_Id_operacion });
+
+                            object oResultado = odc_CmdMaxDet.ExecuteScalar();
+                            if (oResultado != null && oResultado != DBNull.Value)
+                                iProximoIdDetalle = Convert.ToInt32(oResultado);
                         }
 
                         string sSqlDet = @"
-                            INSERT INTO Tbl_MovimientoBancarioDetalle
-                            (Fk_Id_Movimiento, Fk_Id_CuentaOrigen, Fk_Id_Operacion, Pk_Id_Detalle,
-                             Fk_Id_CuentaContable, Cmp_TipoOperacion, Cmp_Valor, Cmp_Descripcion,
-                             Cmp_OrdenDetalle, Cmp_UsuarioRegistro)
-                            VALUES (?,?,?,?,?,?,?,?,?,?)";
+                    INSERT INTO Tbl_MovimientoBancarioDetalle
+                    (Fk_Id_Movimiento, Fk_Id_CuentaOrigen, Fk_Id_Operacion, Pk_Id_Detalle,
+                     Fk_Id_CuentaContable, Cmp_TipoOperacion, Cmp_Valor, Cmp_Descripcion,
+                     Cmp_OrdenDetalle, Cmp_UsuarioRegistro)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
                         using (OdbcCommand odc_CmdDet = new OdbcCommand(sSqlDet, odcn_Conn, odc_Transaccion))
                         {
@@ -264,18 +248,23 @@ namespace Capa_Modelo_MB
                                 det.sCmp_Descripcion = fun_Trunc(det.sCmp_Descripcion, 255);
 
                                 odc_CmdDet.Parameters.Clear();
-                                odc_CmdDet.Parameters.AddWithValue("", mov.iPk_Id_movimiento);
-                                odc_CmdDet.Parameters.AddWithValue("", mov.iFk_Id_cuenta_origen);
-                                odc_CmdDet.Parameters.AddWithValue("", mov.iFk_Id_operacion);
-                                odc_CmdDet.Parameters.AddWithValue("", iProximoIdDetalle);
-                                odc_CmdDet.Parameters.AddWithValue("", det.sFk_Id_cuenta_contable);
-                                odc_CmdDet.Parameters.AddWithValue("", det.sCmp_tipo_operacion);
-                                odc_CmdDet.Parameters.AddWithValue("", Convert.ToDecimal(det.deCmp_valor));
-                                odc_CmdDet.Parameters.AddWithValue("", (object)det.sCmp_Descripcion ?? DBNull.Value);
-                                odc_CmdDet.Parameters.AddWithValue("", iOrden);
-                                odc_CmdDet.Parameters.AddWithValue("", mov.sCmp_usuario_registro ?? "SISTEMA");
 
-                                odc_CmdDet.ExecuteNonQuery();
+                                // Agregar parámetros de forma explícita
+                                odc_CmdDet.Parameters.Add(new OdbcParameter("@Fk_Id_Movimiento", OdbcType.Int) { Value = mov.iPk_Id_movimiento });
+                                odc_CmdDet.Parameters.Add(new OdbcParameter("@Fk_Id_CuentaOrigen", OdbcType.Int) { Value = mov.iFk_Id_cuenta_origen });
+                                odc_CmdDet.Parameters.Add(new OdbcParameter("@Fk_Id_Operacion", OdbcType.Int) { Value = mov.iFk_Id_operacion });
+                                odc_CmdDet.Parameters.Add(new OdbcParameter("@Pk_Id_Detalle", OdbcType.Int) { Value = iProximoIdDetalle });
+                                odc_CmdDet.Parameters.Add(new OdbcParameter("@Fk_Id_CuentaContable", OdbcType.VarChar, 20) { Value = det.sFk_Id_cuenta_contable ?? "1110" });
+                                odc_CmdDet.Parameters.Add(new OdbcParameter("@Cmp_TipoOperacion", OdbcType.VarChar, 1) { Value = det.sCmp_tipo_operacion ?? "C" });
+                                odc_CmdDet.Parameters.Add(new OdbcParameter("@Cmp_Valor", OdbcType.Decimal) { Value = det.deCmp_valor });
+                                odc_CmdDet.Parameters.Add(new OdbcParameter("@Cmp_Descripcion", OdbcType.VarChar, 255) { Value = (object)det.sCmp_Descripcion ?? DBNull.Value });
+                                odc_CmdDet.Parameters.Add(new OdbcParameter("@Cmp_OrdenDetalle", OdbcType.Int) { Value = iOrden });
+                                odc_CmdDet.Parameters.Add(new OdbcParameter("@Cmp_UsuarioRegistro", OdbcType.VarChar, 50) { Value = mov.sCmp_usuario_registro ?? "SISTEMA" });
+
+                                int iFilasDetalle = odc_CmdDet.ExecuteNonQuery();
+
+                                if (iFilasDetalle == 0)
+                                    throw new Exception($"No se pudo insertar el detalle en orden {iOrden}");
 
                                 iProximoIdDetalle++;
                                 iOrden++;
@@ -289,7 +278,7 @@ namespace Capa_Modelo_MB
                 catch (Exception ex)
                 {
                     odc_Transaccion.Rollback();
-                    throw new Exception("Error al crear movimiento con detalles: " + ex.Message);
+                    throw new Exception($"Error al crear movimiento con detalles: {ex.Message}");
                 }
             }
         }
@@ -522,5 +511,12 @@ namespace Capa_Modelo_MB
                 throw new Exception("Error al obtener movimientos: " + ex.Message);
             }
         }
+
+
+
+        // CUADRE DE CAJA
+       
+
+
     }
 }
