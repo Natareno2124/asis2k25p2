@@ -15,6 +15,7 @@ using Capa_Vista_MB;
 using Capa_Vista_Mantenimientos;
 using Capa_Vista_TipoDeCambio;
 using Capa_Vista;
+using Capa_Vista_ReportesBancarios;
 
 
 namespace Capa_Vista_Bancos
@@ -83,7 +84,7 @@ namespace Capa_Vista_Bancos
                 { MenuOpciones.Procesos, procesosToolStripMenuItem },
                 { MenuOpciones.Herramientas, herramientasToolStripMenuItem },
                 { MenuOpciones.Asignaciones, asignacionesToolStripMenuItem },
-                { MenuOpciones.Modulos, modulosToolStripMenuItem }
+                { MenuOpciones.Modulos, TipoPagoToolStripMenuItem }
             };
         }
 
@@ -111,16 +112,17 @@ namespace Capa_Vista_Bancos
             // Diccionarios de idAplicacion -> submenú
             Dictionary<int, ToolStripMenuItem> mapaCatalogos = new Dictionary<int, ToolStripMenuItem>
             {
-                {301, empleadosToolStripMenuItem1},
-                {302, usuariosToolStripMenuItem},
-                {303, perfilesToolStripMenuItem},
-                {304, modulosToolStripMenuItem},
-                {305, Btn_Aplicacion}
+                {301, BancosToolStripMenuItem1},
+                {302, MonedasToolStripMenuItem},
+                {303, CuentasToolStripMenuItem},
+                {304, TipoPagoToolStripMenuItem},
+                {305, Transacciones}
             };
 
             Dictionary<int, ToolStripMenuItem> mapaProcesos = new Dictionary<int, ToolStripMenuItem>
             {
                 {309, procesosToolStripMenuItem }
+                
             };
 
             Dictionary<int, ToolStripMenuItem> mapaAsignaciones = new Dictionary<int, ToolStripMenuItem>
@@ -382,13 +384,31 @@ namespace Capa_Vista_Bancos
 
         private void ingresoTipoCambioToolStripMenuItem_Click(object sender, EventArgs e)
         {
-            Frm_IngresoTipoDeCambio F = new Frm_IngresoTipoDeCambio();
+            Frm_IngresoTipoDeCambio1 F = new Frm_IngresoTipoDeCambio1();
             F.ShowDialog();
         }
 
         private void pruebaToolStripMenuItem_Click(object sender, EventArgs e)
         {
             Frm_PruebaNavegador M = new Frm_PruebaNavegador();
+            M.ShowDialog();
+        }
+
+        private void reportesBancariosToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            Forms_Reportes_Bancarios M = new Forms_Reportes_Bancarios();
+            M.ShowDialog();
+        }
+
+        private void disponibilidadDiariaToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            Frm_DisponibilidadDiaria M = new Frm_DisponibilidadDiaria();
+            M.ShowDialog();
+        }
+
+        private void tipoCambioDelDiaToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            Frm_TipoDeCambioDia M = new Frm_TipoDeCambioDia();
             M.ShowDialog();
         }
     }
